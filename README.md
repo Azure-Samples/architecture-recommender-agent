@@ -3,6 +3,9 @@
 This app template is built on top of [Teams AI library](https://aka.ms/teams-ai-library).
 It showcases how to build an AI agent in Teams capable of chatting with users and helping users accomplish a specific task using natural language right in the Teams conversations, such as managing tasks.
 
+## Use Case: 
+Software architects accumulate vast libraries of diagrams, white-papers, and Confluence pages from past projects. When a new initiative kicks off they often comb through this unstructured content manually to find reusable patterns—a slow and error-prone task. This application automates that research using Large Language Models (LLMs) and agentic workflows to surface the closest-matching reference architectures and explain how each one satisfies—or falls short of—the new project's requirements.
+
 ## Azure AI Foundry Integration
 
 This template integrates with **Azure AI Foundry** to leverage enterprise-grade AI capabilities while interfacing the agent in Teams:
@@ -20,6 +23,15 @@ This template integrates with **Azure AI Foundry** to leverage enterprise-grade 
 - **Model Monitoring**: Track usage, performance, and costs
 - **Fine-tuning**: Customize models with your organization's data
 - **Multi-modal Support**: Handle text, images, and other content types
+
+## Overview of the Agent Configured in AI Foundry
+
+The teams application leverages an agent configured in AI Foundry. The agent configuration can be automated via the python script in the /scripts folder.
+The configured agent will connect to an AI Search index which contains the inventory of architectures ingestion from Confluence via the data ingestion pipelines. 
+
+## Data Ingestion Pipeline
+
+Implemented via a python script in the /scripts folder. Indexes all the pdf files in the /data folder to an Azure AI Search index. These pdf files are Confluence pages containing architecture diagrams in previously implemented projects. 
 
 ## Get started with the template
 
