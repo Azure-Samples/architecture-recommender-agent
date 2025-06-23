@@ -13,6 +13,8 @@ __pycache__/
 .deployment/
 node_modules/
 devTools/*.log
-
 # Dev tool directories
 /devTools/
+
+# Ignore all files in data directory
+data/*

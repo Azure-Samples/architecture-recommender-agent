@@ -41,8 +41,7 @@ from msal import ConfidentialClientApplication
 
 # Set up paths
 script_dir = Path.cwd()
-project_root = script_dir.parent
-data_dir = project_root / "data"          # …/data
+data_dir = script_dir / "data"          # …/data
 out_page_dir  = data_dir / "split_pages"      # …/data/split_pages
 out_page_dir.mkdir(parents=True, exist_ok=True)
 out_fig_dir = data_dir / "figures"
@@ -55,9 +54,9 @@ endpoint = os.environ["Azure_Document_Intelligence_Endpoint"]#
 key       = os.environ["Azure_Document_Intelligence_Key"]#
 adi_client = DocumentIntelligenceClient(endpoint, AzureKeyCredential(key))
 
-aoai_endpoint   = os.environ["Azure_OpenAI_Endpoint"]#
-aoai_key        = os.environ["Azure_OpenAI_Key"]#
-aoai_deployment = "gpt-4o"                      
+aoai_endpoint   = os.environ["AZURE_OPENAI_ENDPOINT"]#
+aoai_key        = os.environ["AZURE_OPENAI_KEY"]#
+aoai_deployment = "gpt-4o-2"                      
 api_version     = "2024-12-01-preview"  
 
 aoai_client = AzureOpenAI(
@@ -66,9 +65,9 @@ aoai_client = AzureOpenAI(
     api_version=api_version,
 )
 
-search_endpoint = os.environ["Azure_Search_Endpoint"]
-search_admin_key = os.environ["Azure_Search_Key"]
-index_name = os.environ["Azure_Search_Index_Name"]
+search_endpoint = os.environ["AZURE_AI_SEARCH_ENDPOINT"]
+search_admin_key = os.environ["AZURE_AI_SEARCH_KEY"]
+index_name = os.environ["AZURE_AI_SEARCH_INDEX_NAME"]
 embedding_deployment = os.environ["Azure_OpenAI_Embedding_Deployment_Name"]
 vector_config = "arch-hnsw"
 azure_openai_embedding_dimensions = 3072
@@ -77,24 +76,24 @@ cred          = AzureKeyCredential(search_admin_key)
 index_client  = SearchIndexClient(search_endpoint, cred)
 
 # Blob Service Principal credentials
-tenant_id = os.environ["Azure_Blob_SP_Tenant_Id"] 
-client_id = os.environ["Azure_Blob_SP_Client_Id"]
-client_secret = os.environ["Azure_Blob_SP_Client_Secret"]
-authority = f"https://login.microsoftonline.com/{tenant_id}"
-scope = ["https://storage.azure.com/.default"]
+#tenant_id = os.environ["Azure_Blob_SP_Tenant_Id"] 
+#client_id = os.environ["Azure_Blob_SP_Client_Id"]
+#client_secret = os.environ["Azure_Blob_SP_Client_Secret"]
+#authority = f"https://login.microsoftonline.com/{tenant_id}"
+#scope = ["https://storage.azure.com/.default"]
 
 # Create a Confidential Client Application
-app = ConfidentialClientApplication(
-    client_id=client_id,
-    client_credential=client_secret,
-    authority=authority
-)
+#app = ConfidentialClientApplication(
+#    client_id=client_id,
+#    client_credential=client_secret,
+#    authority=authority
+#)
 # Acquire a Token
-token_response = app.acquire_token_for_client(scopes=scope)
-if "access_token" in token_response:
-    access_token = token_response["access_token"]
-else:
-    raise Exception("Failed to acquire token")
+#token_response = app.acquire_token_for_client(scopes=scope)
+#if "access_token" in token_response:
+#    access_token = token_response["access_token"]
+#else:
+#    raise Exception("Failed to acquire token")
 
 # Wrap the access token
 class BearerTokenCredential:
@@ -104,15 +103,15 @@ class BearerTokenCredential:
     def get_token(self, *scopes):
         return AccessToken(self.token, float("inf"))
 
-credential = BearerTokenCredential(access_token)
+#credential = BearerTokenCredential(access_token)
 
 # Azure Storage account details
-storage_account_name = os.environ["Azure_Blob_Storage_Account_Name"]
-container_name = os.environ["Azure_Blob_Container_Name"]
-blob_service_client = BlobServiceClient(
-    account_url=f"https://{storage_account_name}.blob.core.windows.net",
-    credential=credential
-)
+#storage_account_name = os.environ["Azure_Blob_Storage_Account_Name"]
+#container_name = os.environ["Azure_Blob_Container_Name"]
+#blob_service_client = BlobServiceClient(
+#    account_url=f"https://{storage_account_name}.blob.core.windows.net",
+#    credential=credential
+#)
 
 architecture_extraction_system_prompt = """
 You are provided with the OCR content and Section Headings of a PDF containing software architecture diagrams. Your job is to use the Sections Headings of the PDF to identify 
@@ -263,7 +262,6 @@ def pdf_to_figures(pdf_path: Path, out_fig_dir: Path, dpi: int = 300) -> None:
         pix  = page.get_pixmap(matrix=mat, clip=bbox, alpha=False)
         out_fig_path = out_fig_dir / f"{pdf_path.stem}_{fig_idx:03}.png"
         pix.save(out_fig_path)
-        
 
 
 def pdf_to_pngs(pdf_path: Path, out_fig_dir: Path, out_page_dir: Path, dpi: int = 300) -> None:
@@ -310,6 +308,7 @@ def architecture_extraction_with_ocr(ocr_content: str, section_headings: str, ar
     response = json.loads(response.choices[0].message.content)
     extracted_architectures.extend(response["extracted_architectures"])
     return extracted_architectures
+
 
 def architecture_ai_summaries_with_images(pdf_path: Path, file_name: str, system_prompt_arch_summary: str):
 
@@ -365,13 +364,14 @@ def build_and_push_docs(arch_items: List[dict], summaries: List[dict], file_name
         blob_path = str(out_fig_dir / blob_name)
         #blob_client = blob_service_client.get_blob_client(container=container_name, blob=f"{blob_path}_{index:03}.png")
         
-        container_client = blob_service_client.get_container_client(container=container_name)
+        #container_client = blob_service_client.get_container_client(container=container_name)
 
-        with open(blob_path, "rb") as data:
-            container_client.upload_blob(name=blob_name, data=data, overwrite=True)
+        #with open(blob_path, "rb") as data:
+        #    container_client.upload_blob(name=blob_name, data=data, overwrite=True)
             #blob_client.upload_blob(data, overwrite=True)
 
-        blob_url = f"https://{storage_account_name}.blob.core.windows.net/{container_name}/{blob_name}"
+        #blob_url = f"https://{storage_account_name}.blob.core.windows.net/{container_name}/{blob_name}"
+        blob_url = "https://example.blob.core.windows.net/container/"  # Replace with actual blob URL
         print(f"Blob uploaded successfully. URL: {blob_url}")
 
         text = (
@@ -404,8 +404,11 @@ if __name__ == "__main__":
     print("Creating or updating search index...")
     create_or_update_search_index()
     print("Beginning data pipeline...")
+    print(f"Data directory: {data_dir}")
+    print(f"Script Directory: {script_dir}")
     for file_name in os.listdir(data_dir):
         if file_name.endswith(".pdf"):
+            print(f"Processing file: {file_name}")
             file_path = data_dir / file_name
             section_headings, fig_bounding_boxes, result = get_ocr_from_adi(str(file_path))
             pdf_to_pngs(file_path, out_fig_dir, out_page_dir, dpi=300)
