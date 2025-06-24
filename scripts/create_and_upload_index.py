@@ -84,7 +84,7 @@ storage_account_name = os.environ["Azure_Blob_Storage_Account_Name"]
 output_container_name = os.environ["Azure_Blob_output_container_name"]
 input_container_name = os.environ["Azure_Blob_input_container_name"]
 
-blob_service_client = BlobServiceClient.from_connection_string("DefaultEndpointsProtocol=https;AccountName=example1blob;AccountKey=NFR5POka1DHgxfz/FEvvs5+mNVTSvvmtQHZehwKwxbKuzDNkWyMHYClX7fv1viw/Q0zwTrPhmwHU+AStxXY2HQ==;EndpointSuffix=core.windows.net")
+blob_service_client = os.environ.get("Azure_blob_connection_string")
 
 architecture_extraction_system_prompt = """
 You are provided with the OCR content and Section Headings of a PDF containing software architecture diagrams. Your job is to use the Sections Headings of the PDF to identify 
