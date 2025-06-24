@@ -1,4 +1,6 @@
 import os
+import io
+from datetime import datetime, timedelta
 from pathlib import Path
 from dotenv import load_dotenv
 from pdf2image import convert_from_path
@@ -75,43 +77,14 @@ azure_openai_embedding_dimensions = 3072
 cred          = AzureKeyCredential(search_admin_key)
 index_client  = SearchIndexClient(search_endpoint, cred)
 
-# Blob Service Principal credentials
-#tenant_id = os.environ["Azure_Blob_SP_Tenant_Id"] 
-#client_id = os.environ["Azure_Blob_SP_Client_Id"]
-#client_secret = os.environ["Azure_Blob_SP_Client_Secret"]
-#authority = f"https://login.microsoftonline.com/{tenant_id}"
-#scope = ["https://storage.azure.com/.default"]
 
-# Create a Confidential Client Application
-#app = ConfidentialClientApplication(
-#    client_id=client_id,
-#    client_credential=client_secret,
-#    authority=authority
-#)
-# Acquire a Token
-#token_response = app.acquire_token_for_client(scopes=scope)
-#if "access_token" in token_response:
-#    access_token = token_response["access_token"]
-#else:
-#    raise Exception("Failed to acquire token")
-
-# Wrap the access token
-class BearerTokenCredential:
-    def __init__(self, token):
-        self.token = token
-
-    def get_token(self, *scopes):
-        return AccessToken(self.token, float("inf"))
-
-#credential = BearerTokenCredential(access_token)
 
 # Azure Storage account details
-#storage_account_name = os.environ["Azure_Blob_Storage_Account_Name"]
-#container_name = os.environ["Azure_Blob_Container_Name"]
-#blob_service_client = BlobServiceClient(
-#    account_url=f"https://{storage_account_name}.blob.core.windows.net",
-#    credential=credential
-#)
+storage_account_name = os.environ["Azure_Blob_Storage_Account_Name"]
+output_container_name = os.environ["Azure_Blob_output_container_name"]
+input_container_name = os.environ["Azure_Blob_input_container_name"]
+
+blob_service_client = BlobServiceClient.from_connection_string("DefaultEndpointsProtocol=https;AccountName=example1blob;AccountKey=NFR5POka1DHgxfz/FEvvs5+mNVTSvvmtQHZehwKwxbKuzDNkWyMHYClX7fv1viw/Q0zwTrPhmwHU+AStxXY2HQ==;EndpointSuffix=core.windows.net")
 
 architecture_extraction_system_prompt = """
 You are provided with the OCR content and Section Headings of a PDF containing software architecture diagrams. Your job is to use the Sections Headings of the PDF to identify 
@@ -204,6 +177,58 @@ def create_or_update_search_index() -> None:
         index_result = index_client.create_or_update_index(index)
         print(f'{index_result.name} created')
 
+
+def get_recent_pdfs_from_blob(container_client, hours=24):
+    """
+    Get PDFs from blob storage that were updated in the last specified hours.
+    
+    Args:
+        container_client: Azure blob container client
+        hours: Number of hours to look back (default 24)
+    
+    Returns:
+        List of tuples containing (blob_name, blob_data)
+    """
+    cutoff_time = datetime.now() - timedelta(hours=hours)
+    recent_pdfs = []
+    
+    try:
+        # List all blobs in the container
+        blobs = container_client.list_blobs(include=['metadata'])
+        
+        for blob in blobs:
+            # Check if it's a PDF file and was modified recently
+            if (blob.name.lower().endswith('.pdf') and 
+                blob.last_modified.replace(tzinfo=None) > cutoff_time):
+                
+                print(f"Found recent PDF: {blob.name} (modified: {blob.last_modified})")
+                
+                # Download the blob data
+                blob_client = container_client.get_blob_client(blob.name)
+                blob_data = blob_client.download_blob().readall()
+                
+                recent_pdfs.append((blob.name, blob_data))
+                
+    except Exception as e:
+        print(f"Error reading from blob storage: {e}")
+        
+    return recent_pdfs
+
+def save_blob_pdfs_locally(recent_pdfs, local_data_dir):
+    """
+    Save downloaded PDF blobs to local directory.
+    
+    Args:
+        recent_pdfs: List of tuples containing (blob_name, blob_data)
+        local_data_dir: Local directory to save PDFs
+    """
+    for blob_name, blob_data in recent_pdfs:
+        local_file_path = local_data_dir / blob_name
+        
+        with open(local_file_path, 'wb') as f:
+            f.write(blob_data)
+        
+        print(f"Saved {blob_name} to {local_file_path}")
 
 def get_ocr_from_adi(file_path: str):
     
@@ -362,16 +387,16 @@ def build_and_push_docs(arch_items: List[dict], summaries: List[dict], file_name
         # Get a BlobClient
         blob_name = f"{Path(file_name).stem}_{index:03}.png"
         blob_path = str(out_fig_dir / blob_name)
-        #blob_client = blob_service_client.get_blob_client(container=container_name, blob=f"{blob_path}_{index:03}.png")
+        #blob_client = blob_service_client.get_blob_client(container=output_container_name, blob=f"{blob_path}_{index:03}.png")
         
-        #container_client = blob_service_client.get_container_client(container=container_name)
+        container_client = blob_service_client.get_container_client(container=output_container_name)
 
-        #with open(blob_path, "rb") as data:
-        #    container_client.upload_blob(name=blob_name, data=data, overwrite=True)
+        with open(blob_path, "rb") as data:
+            container_client.upload_blob(name=blob_name, data=data, overwrite=True)
             #blob_client.upload_blob(data, overwrite=True)
 
-        #blob_url = f"https://{storage_account_name}.blob.core.windows.net/{container_name}/{blob_name}"
-        blob_url = "https://example.blob.core.windows.net/container/"  # Replace with actual blob URL
+        blob_url = f"https://{storage_account_name}.blob.core.windows.net/{output_container_name}/{blob_name}"
+        #blob_url = "https://example.blob.core.windows.net/container/"  # Replace with actual blob URL
         print(f"Blob uploaded successfully. URL: {blob_url}")
 
         text = (
@@ -403,9 +428,21 @@ def build_and_push_docs(arch_items: List[dict], summaries: List[dict], file_name
 if __name__ == "__main__":
     print("Creating or updating search index...")
     create_or_update_search_index()
+    container_client = blob_service_client.get_container_client(input_container_name)
+    print("Checking for recent PDFs in blob storage...")
+    recent_pdfs = get_recent_pdfs_from_blob(container_client, hours=24)
+    
+    if recent_pdfs:
+        print(f"Found {len(recent_pdfs)} recent PDF(s)")
+        # Save to local directory for processing
+        save_blob_pdfs_locally(recent_pdfs, data_dir)
+
+    else:
+        print("No recent PDFs found in blob storage")
+
     print("Beginning data pipeline...")
     print(f"Data directory: {data_dir}")
-    print(f"Script Directory: {script_dir}")
+    
     for file_name in os.listdir(data_dir):
         if file_name.endswith(".pdf"):
             print(f"Processing file: {file_name}")
