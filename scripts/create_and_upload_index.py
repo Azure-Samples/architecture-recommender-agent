@@ -77,14 +77,19 @@ azure_openai_embedding_dimensions = 3072
 cred          = AzureKeyCredential(search_admin_key)
 index_client  = SearchIndexClient(search_endpoint, cred)
 
-
-
 # Azure Storage account details
 storage_account_name = os.environ["Azure_Blob_Storage_Account_Name"]
 output_container_name = os.environ["Azure_Blob_output_container_name"]
 input_container_name = os.environ["Azure_Blob_input_container_name"]
 
-blob_service_client = os.environ.get("Azure_blob_connection_string")
+blob_connection_string = os.environ["Azure_blob_connection"]
+
+blob_service_client = BlobServiceClient.from_connection_string(os.environ["Azure_blob_connection"])
+
+print(storage_account_name)
+print(output_container_name)
+print(input_container_name)
+print(blob_connection_string)
 
 architecture_extraction_system_prompt = """
 You are provided with the OCR content and Section Headings of a PDF containing software architecture diagrams. Your job is to use the Sections Headings of the PDF to identify 
@@ -387,16 +392,13 @@ def build_and_push_docs(arch_items: List[dict], summaries: List[dict], file_name
         # Get a BlobClient
         blob_name = f"{Path(file_name).stem}_{index:03}.png"
         blob_path = str(out_fig_dir / blob_name)
-        #blob_client = blob_service_client.get_blob_client(container=output_container_name, blob=f"{blob_path}_{index:03}.png")
         
         container_client = blob_service_client.get_container_client(container=output_container_name)
 
         with open(blob_path, "rb") as data:
             container_client.upload_blob(name=blob_name, data=data, overwrite=True)
-            #blob_client.upload_blob(data, overwrite=True)
 
         blob_url = f"https://{storage_account_name}.blob.core.windows.net/{output_container_name}/{blob_name}"
-        #blob_url = "https://example.blob.core.windows.net/container/"  # Replace with actual blob URL
         print(f"Blob uploaded successfully. URL: {blob_url}")
 
         text = (

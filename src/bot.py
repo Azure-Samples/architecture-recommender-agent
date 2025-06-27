@@ -2,19 +2,21 @@ import os
 import sys
 import traceback
 import json
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 from dataclasses import asdict
 from botbuilder.core import MemoryStorage, TurnContext, Middleware
 from state import AppTurnState
 from teams import Application, ApplicationOptions, TeamsAdapter
-from teams.ai.actions import ActionTurnContext
-from teams.state import TurnState
 from teams.feedback_loop_data import FeedbackLoopData
 import aiohttp
 import logging
 from azure.ai.projects import AIProjectClient
 from azure.identity import DefaultAzureCredential, ManagedIdentityCredential
+from azure.cosmos import CosmosClient
+from azure.mgmt.authorization import AuthorizationManagementClient
+from config import Config
 
+# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -25,21 +27,20 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-from config import Config
-
 config = Config()
-
 
 # Use the no-auth config instead of your regular config
 adapter = TeamsAdapter(config)
 
+# Initialize AIProjectClient with your endpoint and credentials. For credentials, service principal can be used if .env has following configured: AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID
 project = AIProjectClient(
   endpoint=config.FOUNDRY_PROJECT_ENDPOINT,  # Replace with your endpoint
   credential=DefaultAzureCredential())  # Replace with your project key)
 agent = project.agents.get_agent(config.FOUNDRY_AGENT_ID)
 
-# Define storage and application
-storage = MemoryStorage()
+
+# Define application
+storage = MemoryStorage() # this is used to store conversation state, user state, etc. It can be replaced with other storage options like CosmosDB.
 bot_app = Application[AppTurnState](
     ApplicationOptions(
         bot_app_id="",
@@ -47,6 +48,74 @@ bot_app = Application[AppTurnState](
         adapter=adapter
     )
 )
+
+async def check_foundry_project_access(user_aad_id: str) -> bool:
+    """
+    Check if a user has access to the specific AI Foundry project.
+    
+    Args:
+        user_aad_id: The AAD object ID of the user
+        
+    Returns:
+        bool: True if user has access, False otherwise
+    """
+    try:
+        credential = DefaultAzureCredential()
+        
+        # Extract project information from your endpoint
+        # Example endpoint: https://resource-name.services.ai.azure.com/api/projects/project-name
+        endpoint_parts = config.FOUNDRY_PROJECT_ENDPOINT.split('/')
+        resource_name = endpoint_parts[2].split('.')[0]
+        project_name = endpoint_parts[-1]
+        logger.info(f"Checking access for user {user_aad_id} on project {project_name} in foundry resource {resource_name}")
+        subscription_id = config.AZURE_SUBSCRIPTION_ID
+        resource_group_name = config.AZURE_RESOURCE_GROUP_NAME
+        
+        # Create authorization management client
+        auth_client = AuthorizationManagementClient(credential, subscription_id)
+        
+        # Project-level scope for AI Foundry projects
+        project_scope = f"/subscriptions/{subscription_id}/resourceGroups/{resource_group_name}/providers/Microsoft.CognitiveServices/accounts/{resource_name}/projects/{project_name}"
+        
+        user_aad_id = config.DUMMY_USER_ENTRA_ID
+        # Check role assignments at project level
+        role_assignments = list(auth_client.role_assignments.list_for_scope(
+            scope=project_scope,
+            filter=f"principalId eq '{user_aad_id}'"
+        ))
+
+        if role_assignments:
+            logger.info(f"User {user_aad_id} has {len(role_assignments)} role assignment(s) on the AI Foundry project")
+            
+            # Check for AI Foundry specific roles
+            foundry_roles = [
+                "Azure AI User",
+                "Owner",
+                "Contributor"
+                "Reader"
+            ]
+            
+            for assignment in role_assignments:
+                try:
+                    role_def = auth_client.role_definitions.get_by_id(assignment.role_definition_id)
+                    role_name = role_def.role_name
+                    logger.info(f"User has project role: {role_name}")
+                    
+                    if role_name in foundry_roles:
+                        return True
+                except:
+                    # If we can't get role definition, assume access is valid
+                    logger.warning(f"Could not retrieve role definition for assignment {assignment.id}, assuming access is valid")
+                    return True
+            
+            return len(role_assignments) > 0
+        else:
+            logger.info(f"User {user_aad_id} has no direct role assignments on the AI Foundry project")
+            return False
+            
+    except Exception as e:
+        logger.error(f"Error checking project access: {e}")
+        return False
 
 
 @bot_app.turn_state_factory
@@ -57,7 +126,26 @@ async def turn_state_factory(context: TurnContext):
 async def on_message(context: TurnContext, state: AppTurnState):
     user_input = context.activity.text or ""
     logger.info(f"Received user input: {user_input}")
-    
+
+    # Get user aad id from state
+    user_aad_id = getattr(state.conversation, 'user_aad_id', None) 
+
+    if user_aad_id is None:
+        # If AAD object ID is not set, try to get it from the activity
+        logger.info("No user AAD ID found in state, checking activity...")
+        user_aad_id = getattr(context.activity.from_property, 'aad_object_id', None)
+        if user_aad_id:
+            state.conversation.user_aad_id = user_aad_id
+            logger.info(f"Set user AAD ID in state: {user_aad_id}")
+            has_access = await check_foundry_project_access(user_aad_id)
+            if not has_access:
+                logger.warning(f"User {user_aad_id} does not have access to the AI Foundry project.")
+                await context.send_activity("You do not have access to either the required AI Foundry agent or the project. Please contact your administrator.")
+                return
+        else:
+            logger.warning("No AAD object ID found in activity or state.")
+
+
     # Get thread ID from state
     thread_id = getattr(state.conversation, 'foundry_thread_id', None)
 
