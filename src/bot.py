@@ -12,8 +12,8 @@ import aiohttp
 import logging
 from azure.ai.projects import AIProjectClient
 from azure.identity import DefaultAzureCredential, ManagedIdentityCredential
-from azure.cosmos import CosmosClient
-from azure.mgmt.authorization import AuthorizationManagementClient
+from msgraph import GraphServiceClient
+from msgraph.generated.users.item.member_of.member_of_request_builder import MemberOfRequestBuilder
 from config import Config
 
 # Configure logging
@@ -49,7 +49,7 @@ bot_app = Application[AppTurnState](
     )
 )
 
-async def check_foundry_project_access(user_aad_id: str) -> bool:
+async def check_agent_app_access(user_aad_id: str, authorized_group: str) -> bool:
     """
     Check if a user has access to the specific AI Foundry project.
     
@@ -61,58 +61,37 @@ async def check_foundry_project_access(user_aad_id: str) -> bool:
     """
     try:
         credential = DefaultAzureCredential()
-        
-        # Extract project information from your endpoint
-        # Example endpoint: https://resource-name.services.ai.azure.com/api/projects/project-name
-        endpoint_parts = config.FOUNDRY_PROJECT_ENDPOINT.split('/')
-        resource_name = endpoint_parts[2].split('.')[0]
-        project_name = endpoint_parts[-1]
-        logger.info(f"Checking access for user {user_aad_id} on project {project_name} in foundry resource {resource_name}")
-        subscription_id = config.AZURE_SUBSCRIPTION_ID
-        resource_group_name = config.AZURE_RESOURCE_GROUP_NAME
-        
-        # Create authorization management client
-        auth_client = AuthorizationManagementClient(credential, subscription_id)
-        
-        # Project-level scope for AI Foundry projects
-        project_scope = f"/subscriptions/{subscription_id}/resourceGroups/{resource_group_name}/providers/Microsoft.CognitiveServices/accounts/{resource_name}/projects/{project_name}"
-        
-        user_aad_id = config.DUMMY_USER_ENTRA_ID
-        # Check role assignments at project level
-        role_assignments = list(auth_client.role_assignments.list_for_scope(
-            scope=project_scope,
-            filter=f"principalId eq '{user_aad_id}'"
-        ))
 
-        if role_assignments:
-            logger.info(f"User {user_aad_id} has {len(role_assignments)} role assignment(s) on the AI Foundry project")
-            
-            # Check for AI Foundry specific roles
-            foundry_roles = [
-                "Azure AI User",
-                "Owner",
-                "Contributor"
-                "Reader"
-            ]
-            
-            for assignment in role_assignments:
-                try:
-                    role_def = auth_client.role_definitions.get_by_id(assignment.role_definition_id)
-                    role_name = role_def.role_name
-                    logger.info(f"User has project role: {role_name}")
-                    
-                    if role_name in foundry_roles:
-                        return True
-                except:
-                    # If we can't get role definition, assume access is valid
-                    logger.warning(f"Could not retrieve role definition for assignment {assignment.id}, assuming access is valid")
-                    return True
-            
-            return len(role_assignments) > 0
-        else:
-            logger.info(f"User {user_aad_id} has no direct role assignments on the AI Foundry project")
-            return False
-            
+        graph_client = GraphServiceClient(
+            credentials=credential,
+            scopes=['https://graph.microsoft.com/.default']
+        )
+
+        # Get the user's group memberships
+        member_of = await graph_client.users.by_user_id(user_aad_id).member_of.get()
+
+        # Define the specific Entra ID groups that should have access
+        authorized_group = authorized_group
+        has_access = False
+
+        # Check if the user is a member of the Required Agent App group
+        user_groups = []
+        if member_of and member_of.value:
+            for group in member_of.value:
+                # Check if it's a group and has a display name
+                if hasattr(group, 'display_name') and group.display_name:
+                    user_groups.append(group.display_name)
+                    logger.info(f"User {user_aad_id} is member of group: {group.display_name}")
+
+                    if group.display_name == authorized_group:
+                        has_access = True
+                        logger.info(f"User {user_aad_id} has access via group membership: {authorized_group}")
+
+        if not has_access:
+            logger.warning(f"User {user_aad_id} is not a member of authorized group '{authorized_group}'. User groups: {user_groups}")
+
+        return has_access
+
     except Exception as e:
         logger.error(f"Error checking project access: {e}")
         return False
@@ -137,14 +116,16 @@ async def on_message(context: TurnContext, state: AppTurnState):
         if user_aad_id:
             state.conversation.user_aad_id = user_aad_id
             logger.info(f"Set user AAD ID in state: {user_aad_id}")
-            has_access = await check_foundry_project_access(user_aad_id)
+            has_access = await check_agent_app_access(user_aad_id=user_aad_id, authorized_group=config.FOUNDRY_AGENT_APP_GROUP_NAME)
+            #has_access = await check_agent_app_access(user_aad_id="", authorized_group="")  # Replace with your actual group name
             if not has_access:
-                logger.warning(f"User {user_aad_id} does not have access to the AI Foundry project.")
-                await context.send_activity("You do not have access to either the required AI Foundry agent or the project. Please contact your administrator.")
+                logger.warning(f"User {user_aad_id} does not have access to the Agent App.")
+                await context.send_activity("You do not have access to either the required Agent App or the project. Please contact your administrator.")
                 return
         else:
-            logger.warning("No AAD object ID found in activity or state.")
-
+            logger.warning("No AAD object ID found in activity or state. Assuming no access to the required Agent App.")
+            await context.send_activity("You do not have access to either the required Agent App or the project. Please contact your administrator.")
+            return
 
     # Get thread ID from state
     thread_id = getattr(state.conversation, 'foundry_thread_id', None)

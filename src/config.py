@@ -22,4 +22,4 @@ class Config:
     FOUNDRY_PROJECT_KEY = os.environ.get("FOUNDRY_PROJECT_KEY", "")
     AZURE_SUBSCRIPTION_ID = os.environ.get("AZURE_SUBSCRIPTION_ID", "")
     AZURE_RESOURCE_GROUP_NAME = os.environ.get("AZURE_RESOURCE_GROUP_NAME", "")
-    DUMMY_USER_ENTRA_ID = os.environ.get("DUMMY_USER_ID", "")
+    FOUNDRY_AGENT_APP_GROUP_NAME = os.environ.get("DUMMY_APP_GROUP", "")
