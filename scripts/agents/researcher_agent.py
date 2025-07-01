@@ -8,7 +8,7 @@ from typing import Dict, Any, Optional, List,Set
 from azure.ai.agents.models import FunctionTool,ToolSet,SubmitToolOutputsAction,RequiredFunctionToolCall,ToolOutput,ThreadRun
 from agent_factory import BaseAgent
 from core_prompts import RESEARCHER_AGENT_PROMPT
-from azure.ai.agents.aio import AsyncFunctionTool, AsyncToolSet
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
