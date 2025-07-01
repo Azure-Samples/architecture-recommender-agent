@@ -50,7 +50,7 @@ class ArchitectureResearcherAgent(BaseAgent):
         toolset = ToolSet()
         toolset.add(agent_researcher_default_functions)
         self.functions = toolset
-        factory.client.agents.enable_auto_function_calls(toolset=self.functions)
+        #factory.client.agents.enable_auto_function_calls(toolset=self.functions)
         #self.functions = FunctionTool(functions={self.fetch_architecture_recommendation})
         
            
