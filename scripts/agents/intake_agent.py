@@ -91,7 +91,12 @@ if __name__ == "__main__":
     import sys
     from agent_factory import agent_factory
     from researcher_agent import ArchitectureResearcherAgent
-
+    from utils import initialize_telemetry
+        
+    # Initialize telemetry
+    logger.info("Initializing telemetry...")
+    initialize_telemetry()
+    logger.info("Starting agent flow...")
 
     async def main():
         try:

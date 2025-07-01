@@ -313,7 +313,7 @@ class AgentFactory:
         # Azure configuration from environment
         self.azure_openai_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
         self.project_connection_string = os.getenv("AZURE_AI_PROJECT_CONNECTION_STRING")
-        self.model_deployment_name = "gpt-4.1-mini" #os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4.1-mini")
+        self.model_deployment_name = "o3-mini" #"gpt-4.1-mini" #os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4.1-mini")
         self.search_index_name = os.getenv("AZURE_AI_SEARCH_INDEX_NAME", "cw-architectures-index")
         
         if not self.project_connection_string:

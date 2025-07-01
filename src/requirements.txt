@@ -14,3 +14,5 @@ botbuilder-core
 botbuilder-schema 
 botbuilder-integration-aiohttp 
 uvicorn[standard] 
+azure-monitor-opentelemetry
+opentelemetry-instrumentation-openai-v2

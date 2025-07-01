@@ -1,9 +1,11 @@
 import asyncio
 import logging
+import os
 
 from intake_agent import IntakeAgent
 from researcher_agent import ArchitectureResearcherAgent
 from agent_factory import agent_factory
+from utils import initialize_telemetry
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -42,4 +44,8 @@ async def run_agent_flow():
         # await agent_factory.cleanup()
 
 if __name__ == "__main__":
+    # Initialize telemetry
+    logger.info("Initializing telemetry...")
+    initialize_telemetry()
+    logger.info("Starting agent flow...")
     asyncio.run(run_agent_flow())
