@@ -96,6 +96,8 @@ Azure AI Foundry Agent Configuration (Required)
 FOUNDRY_AGENT_ID=your_ai_foundry_agent_id
 FOUNDRY_PROJECT_ENDPOINT=https://your-project-name.cognitiveservices.azure.com/
 FOUNDRY_PROJECT_KEY=your_ai_foundry_project_api_key
+OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true
+APPLICATION_INSIGHTS_CONNECTION_STRING="InstrumentationKey"
 ```
 **Teams Framework Configuration:**
 ```env
