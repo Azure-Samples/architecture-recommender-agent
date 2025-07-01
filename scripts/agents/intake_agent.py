@@ -105,7 +105,7 @@ if __name__ == "__main__":
             #factory.client.agents.enable_auto_function_calls({researcher_agent.query})
             
             connected_agent = ConnectedAgentTool(
-               id=researcher_agent.agent_id, name="ArchitectureResearchAgent", description="Researches software architecture patterns"
+               id=researcher_agent.agent_id, name="ArchitectureResearchAgent", description="After capturing sufficient detail from the user, we use this agent to perform the necessary research on recommended software architecture patterns"
             )
 
             intake_agent = await factory.create_agent(IntakeAgent)
@@ -114,7 +114,8 @@ if __name__ == "__main__":
            
             
             # Example query
-            user_query = "Data from multiple sources, such as fare data and trip data, is ingested through Event Hubs. These streams are then processed in Azure Databricks,"
+            #user_query = "Data from multiple sources, such as fare data and trip data, is ingested through Event Hubs. These streams are then processed in Azure Databricks,"
+            user_query = "I need data from multiple sources, such as fare data and trip data, is ingested through Event Hubs and stored in Azure storage blob. The data will be provided by external partners and will not need to be secured for now as this is a POC. The processing will be triggered only when the file is uploaded and it will go to an SFTP which will be created so we need detail on this as well. These streams are then processed in Azure Databricks where we can report on afterward. What is the recommendation?"
             logger.info("Sending query to intake agent...")
             result = await intake_agent.query(user_query)
             thread = intake_agent.client.agents.threads.create()
@@ -125,7 +126,7 @@ if __name__ == "__main__":
             print(json.dumps(result, indent=2))
 
         except Exception as e:
-            logger.error(f"Error in main: {e}")
+            logger.error(f"Error in main: {e}\r\n{e.__traceback__}")
             sys.exit(1)
         finally:
             logger.info("Cleaning up...")
