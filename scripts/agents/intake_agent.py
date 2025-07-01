@@ -5,8 +5,9 @@ import asyncio
 import logging
 import time
 import json
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List,Set
 from pathlib import Path
+
 
 from dotenv import load_dotenv
 from azure.ai.agents.models import FunctionTool, ConnectedAgentTool
@@ -27,30 +28,10 @@ class IntakeAgent(BaseAgent):
     
     This is the main orchestrator agent that can call connected researcher and summarizer agents.
     """
-    @staticmethod
-    def fetch_architecture_recommendation(context: str) -> str:
-        """
-        After gathering and clarifying all necessary user requirements, call this function to retrieve the architecture recommendation.
-        
-        Args:
-            context (str): A string containing the full context and requirements of the solution for which an architecture recommendation is needed.
-        
-        Returns:
-            str: Architecture recommendation information along with citations as a JSON string.
-        
-        Note:
-            This function should be called only after sufficient user requirements and context have been collected by the intake agent.
-            The current implementation simulates fetching architecture recommendations (mocked as weather data for demonstration).
-        """
-        # Mock architecture data for demonstration purposes
-        mock_architecture_data = {"architecture": "Microservices using Azure Container Apps", "citations": ["https://example.com/microservices"]}
-        
-        return json.dumps(mock_architecture_data)
-
     def __init__(self, factory):
         super().__init__(factory)
         self.connected_agents: Dict[str, BaseAgent] = {}
-       # self.functions = FunctionTool(functions={self.fetch_architecture_recommendation})
+       
 
     def get_agent_name(self) -> str:
         """Return the name for this agent."""
@@ -111,14 +92,17 @@ if __name__ == "__main__":
     from agent_factory import agent_factory
     from researcher_agent import ArchitectureResearcherAgent
 
+
     async def main():
         try:
             # Initialize factory
             factory = await agent_factory.get_factory()
-
-            # Create agents
+              
             
+            # Create agents
             researcher_agent = await factory.create_agent(ArchitectureResearcherAgent)
+            
+            #factory.client.agents.enable_auto_function_calls({researcher_agent.query})
             
             connected_agent = ConnectedAgentTool(
                id=researcher_agent.agent_id, name="ArchitectureResearchAgent", description="Researches software architecture patterns"
@@ -130,10 +114,13 @@ if __name__ == "__main__":
            
             
             # Example query
-            user_query = "Can you recommend an architecture for a large-scale social media app?"
+            user_query = "Data from multiple sources, such as fare data and trip data, is ingested through Event Hubs. These streams are then processed in Azure Databricks,"
             logger.info("Sending query to intake agent...")
             result = await intake_agent.query(user_query)
-            
+            thread = intake_agent.client.agents.threads.create()
+            researcher_response = await researcher_agent.query(user_query, thread_id=thread.id)
+            logger.info("Researcher Agent Response:")
+            print(json.dumps(researcher_response, indent=2))
             logger.info("Agent Response:")
             print(json.dumps(result, indent=2))
 
