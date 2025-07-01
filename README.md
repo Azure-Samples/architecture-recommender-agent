@@ -12,26 +12,24 @@ This template integrates with **Azure AI Foundry** to leverage enterprise-grade 
 
 ### Benefits of Azure AI Foundry
 - **Model Variety**: Access to multiple model providers in one platform
-- **Integration with third-part tools**: Integration with MCP and A2A
 - **Enterprise Security**: Role-based access control and data governance
 - **Scalability**: Auto-scaling based on demand
 - **Cost Management**: Usage tracking and budget controls
-
 - **Model Management**: Deploy and manage various AI models including GPT-4, Llama, and custom models
 - **Content Safety**: Built-in content filtering and safety guardrails
-- **Prompt Flow**: Visual prompt engineering and testing capabilities
 - **Model Monitoring**: Track usage, performance, and costs
 - **Fine-tuning**: Customize models with your organization's data
 - **Multi-modal Support**: Handle text, images, and other content types
+- **Integration with third-part tools**: Integration with MCP and A2A
 
 ## Overview of the Agent Configured in AI Foundry
 
-The teams application leverages an agent configured in AI Foundry. The agent configuration can be automated via the python script in the /scripts folder.
-The configured agent will connect to an AI Search index which contains the inventory of architectures ingestion from Confluence via the data ingestion pipelines. 
+This teams application leverages an agent configured in AI Foundry. The agent configuration can be automated via the python script in the /scripts folder.
+The configured agent will connect to an AI Search index which contains the inventory of architectures ingested from Confluence via the data ingestion pipelines. 
 
 ## Data Ingestion Pipeline
 
-Implemented via a python script in the /scripts folder. Indexes all the pdf files in the /data folder to an Azure AI Search index. These pdf files are Confluence pages containing architecture diagrams in previously implemented projects. 
+Implemented via a python script in the /scripts folder. Indexes all the pdf files in the specified Blob Storage Account to an Azure AI Search index. These pdf files are Confluence pages containing architecture diagrams from previously implemented projects. 
 
 ## Get started with the template
 
