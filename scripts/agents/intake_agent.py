@@ -7,7 +7,7 @@ import time
 import json
 from typing import Dict, Any, Optional, List,Set
 from pathlib import Path
-from azure.ai.agents import tool
+
 
 from dotenv import load_dotenv
 from azure.ai.agents.models import FunctionTool, ConnectedAgentTool,ToolSet,AsyncFunctionTool,AsyncToolSet
@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 researcher_agent=None
 
-@tool
+
 async def query( user_query: str, thread_id: Optional[str] = None) -> Dict[str, Any]:
     """
     Retrieve AI search result from the researcher agent (AI Search).
@@ -129,19 +129,19 @@ if __name__ == "__main__":
           #  intake_agent.set_connected_agents(connected_agent)
             
 
-            #await researcher_agent.aisearch_query("Batch Message Ingestion (Using ADF Pipeline)")
-
+            final_answer= await researcher_agent.aisearch_query("Batch Message Ingestion (Using ADF Pipeline)")
+            print(json.dumps(final_answer, indent=2))
             # Example query
             #user_query = "Data from multiple sources, such as fare data and trip data, is ingested through Event Hubs. These streams are then processed in Azure Databricks,"
-            user_query = "I need data from multiple sources, such as fare data and trip data, is ingested through Event Hubs and stored in Azure storage blob. The data will be provided by external partners and will not need to be secured for now as this is a POC. The processing will be triggered only when the file is uploaded and it will go to an SFTP which will be created so we need detail on this as well. These streams are then processed in Azure Databricks where we can report on afterward. What is the recommendation?"
-            logger.info("Sending query to intake agent...")
-            result = await intake_agent.query(user_query)
-            thread = intake_agent.client.agents.threads.create()
-            researcher_response = await researcher_agent.query(user_query, thread_id=thread.id)
-            logger.info("Researcher Agent Response:")
-            print(json.dumps(researcher_response, indent=2))
-            logger.info("Agent Response:")
-            print(json.dumps(result, indent=2))
+            #user_query = "I need data from multiple sources, such as fare data and trip data, is ingested through Event Hubs and stored in Azure storage blob. The data will be provided by external partners and will not need to be secured for now as this is a POC. The processing will be triggered only when the file is uploaded and it will go to an SFTP which will be created so we need detail on this as well. These streams are then processed in Azure Databricks where we can report on afterward. What is the recommendation?"
+            #logger.info("Sending query to intake agent...")
+            #result = await intake_agent.query(user_query)
+            #thread = intake_agent.client.agents.threads.create()
+            #researcher_response = await researcher_agent.query(user_query, thread_id=thread.id)
+            #logger.info("Researcher Agent Response:")
+            #print(json.dumps(researcher_response, indent=2))
+            #logger.info("Agent Response:")
+            #print(json.dumps(result, indent=2))
 
         except Exception as e:
             logger.error(f"Error in main: {e}\r\n{e.__traceback__}")
