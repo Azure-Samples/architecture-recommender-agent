@@ -7,10 +7,10 @@ import time
 import json
 from typing import Dict, Any, Optional, List,Set
 from pathlib import Path
-
+from azure.ai.agents import tool
 
 from dotenv import load_dotenv
-from azure.ai.agents.models import FunctionTool, ConnectedAgentTool
+from azure.ai.agents.models import FunctionTool, ConnectedAgentTool,ToolSet,AsyncFunctionTool,AsyncToolSet
 
 from agent_factory import BaseAgent
 from core_prompts import INTAKE_AGENT_PROMPT
@@ -23,6 +23,20 @@ load_dotenv(env_path)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+researcher_agent=None
+
+@tool
+async def query( user_query: str, thread_id: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Retrieve AI search result from the researcher agent (AI Search).
+    
+    :param user_query (str): The user's query with full context to assist in retrieving guidance on recommended software architecture.
+    :param thread_id (Optional[str]): Optional thread ID for the conversation context.
+    """
+    content = await researcher_agent.aisearch_query(user_query, thread_id=thread_id)
+    # Use the base class query method which handles function calling
+    return  content
+
 class IntakeAgent(BaseAgent):
     """Azure AI Agent for recommending software architectures based on user requirements.
     
@@ -31,12 +45,25 @@ class IntakeAgent(BaseAgent):
     def __init__(self, factory):
         super().__init__(factory)
         self.connected_agents: Dict[str, BaseAgent] = {}
+        agent_researcher_default_functions: Set = {
+               query,
+            }
+
+        agent_researcher_default_functions = FunctionTool(functions=agent_researcher_default_functions)
+        toolset = ToolSet()
+        toolset.add(agent_researcher_default_functions)
+        self.functions = toolset
+        
        
 
     def get_agent_name(self) -> str:
         """Return the name for this agent."""
         return "Software Architecture Intake Agent (Main Orchestrator)"
-    
+    def set_researcheragent(self, agent: "ArchitectureResearcherAgent"):
+        global researcher_agent
+        researcher_agent = agent
+        """Set the researcher agent that this intake agent can call."""
+        
     def set_connected_agents(self, connected_agents: ConnectedAgentTool):
         """Set the connected agents that this intake agent can call."""
         
@@ -55,7 +82,7 @@ class IntakeAgent(BaseAgent):
     
     def get_required_function_tools(self) -> Optional[FunctionTool]:
         """Return required function tools for the researcher agent."""
-        return None 
+        return self.functions 
     
     def get_required_tools(self) -> List[str]:
         """Return required tools for the intake agent.
@@ -72,25 +99,14 @@ class IntakeAgent(BaseAgent):
         """Get the system instructions for the agent."""
         return INTAKE_AGENT_PROMPT
 
-    async def query(self, user_query: str, thread_id: Optional[str] = None) -> Dict[str, Any]:
-        """
-        Process a user query and return the agent's response.
-        Uses the base class functionality with function calling support.
-        
-        Args:
-            user_query: The user's question or request
-            thread_id: Optional thread ID for conversation continuity
-            
-        Returns:
-            Dictionary containing the response and metadata
-        """
-        # Use the base class query method which handles function calling
-        return await super().query(user_query, thread_id)
+   
+
 
 if __name__ == "__main__":
     import sys
     from agent_factory import agent_factory
     from researcher_agent import ArchitectureResearcherAgent
+
 
 
     async def main():
@@ -100,19 +116,21 @@ if __name__ == "__main__":
               
             
             # Create agents
-            researcher_agent = await factory.create_agent(ArchitectureResearcherAgent)
+            #factory.client.agents.enable_auto_function_calls({ArchitectureResearcherAgent.get_required_function_tools})
             
-            #factory.client.agents.enable_auto_function_calls({researcher_agent.query})
+            researcher_agent : ArchitectureResearcherAgent = await factory.create_agent(ArchitectureResearcherAgent)
             
             connected_agent = ConnectedAgentTool(
                id=researcher_agent.agent_id, name="ArchitectureResearchAgent", description="After capturing sufficient detail from the user, we use this agent to perform the necessary research on recommended software architecture patterns"
             )
-
+            factory.client.agents.enable_auto_function_calls({query})
             intake_agent = await factory.create_agent(IntakeAgent)
-
-            intake_agent.set_connected_agents(connected_agent)
-           
+            intake_agent.set_researcheragent(researcher_agent)
+          #  intake_agent.set_connected_agents(connected_agent)
             
+
+            #await researcher_agent.aisearch_query("Batch Message Ingestion (Using ADF Pipeline)")
+
             # Example query
             #user_query = "Data from multiple sources, such as fare data and trip data, is ingested through Event Hubs. These streams are then processed in Azure Databricks,"
             user_query = "I need data from multiple sources, such as fare data and trip data, is ingested through Event Hubs and stored in Azure storage blob. The data will be provided by external partners and will not need to be secured for now as this is a POC. The processing will be triggered only when the file is uploaded and it will go to an SFTP which will be created so we need detail on this as well. These streams are then processed in Azure Databricks where we can report on afterward. What is the recommendation?"

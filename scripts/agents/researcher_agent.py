@@ -1,13 +1,17 @@
 # Azure AI Agent for researching and analyzing software architecture patterns
 
+import os
 import json
 import logging
 import asyncio
 from typing import Dict, Any, Optional, List,Set
-
+from azure.search.documents.models import VectorizedQuery
 from azure.ai.agents.models import FunctionTool,ToolSet,SubmitToolOutputsAction,RequiredFunctionToolCall,ToolOutput,ThreadRun
 from agent_factory import BaseAgent
 from core_prompts import RESEARCHER_AGENT_PROMPT
+from azure.search.documents import SearchClient
+from azure.core.credentials import AzureKeyCredential
+from langchain_openai import AzureOpenAIEmbeddings
 
 
 # Configure logging
@@ -15,7 +19,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 MAX_REVIEW_ATTEMPTS = 3
-MIN_QUALITY_SCORE = 0.7  # Threshold for satisfactory response
+MIN_QUALITY_SCORE = 0.7 
+NUM_SEARCH_RESULTS = 15
+K_NEAREST_NEIGHBORS = 30
 
 _factory = None
 _agent_id = None
@@ -157,14 +163,25 @@ class ArchitectureResearcherAgent(BaseAgent):
         _factory = factory
         _agent_id = self.agent_id
         
-        agent_researcher_default_functions: Set = {
-                query,
-            }
-        
-        agent_researcher_default_functions = FunctionTool(functions=agent_researcher_default_functions)
-        toolset = ToolSet()
-        toolset.add(agent_researcher_default_functions)
-        self.functions = toolset
+        self.search_client = SearchClient(
+                os.environ.get("AZURE_AI_SEARCH_ENDPOINT", "https://vectordbdemo.search.windows.net"), 
+                os.environ.get("AZURE_AI_SEARCH_INDEX_NAME", "cw-architectures-index"), 
+                AzureKeyCredential(os.environ["AZURE_AI_SEARCH_KEY"])
+            )
+        self.embeddings_model = AzureOpenAIEmbeddings(
+                azure_deployment=os.environ.get("Azure_OpenAI_Embedding_Deployment_Name", "text-embedding-3-large"),
+                api_key=os.environ["AZURE_OPENAI_KEY"],
+                azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"]
+            )
+
+       # agent_researcher_default_functions: Set = {
+       #         query,
+       #     }
+
+        #agent_researcher_default_functions = FunctionTool(functions=agent_researcher_default_functions)
+        #toolset = ToolSet()
+        #toolset.add(agent_researcher_default_functions)
+        #self.functions = toolset
         #factory.client.agents.enable_auto_function_calls(toolset=self.functions)
         #self.functions = FunctionTool(functions={self.fetch_architecture_recommendation})
            
@@ -184,11 +201,78 @@ class ArchitectureResearcherAgent(BaseAgent):
     
     def get_required_function_tools(self) -> Optional[FunctionTool]:
         """Return required function tools for the researcher agent."""
-        return self.functions
-        #return None
+        #return self.functions
+        return None
 
     def get_agent_instructions(self) -> str:
         """Get the system instructions for the agent."""
         return RESEARCHER_AGENT_PROMPT
+    
+    async def aisearch_query(self, user_query: str, thread_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Perform a search using Azure Cognitive Search with both semantic and vector queries.
+        Searches across name, Content, and Architecture URL fields.
+        
+        Args:
+            search_query: The user's search query
+            
+        Returns:
+            List of search results with combined content
+        """
+        try:
+            print(f"🔍 Running search for: '{user_query}'")
+            
+            # Generate vector embedding for the query
+            query_vector = self.embeddings_model.embed_query(user_query)
+            
+            # Create vector queries for all three vector fields
+            vector_queries = [
+                VectorizedQuery(
+                    vector=query_vector,
+                    k_nearest_neighbors=K_NEAREST_NEIGHBORS,
+                    fields="content_vector"
+                )
+            ]
+            
+            # Perform the search with all vector fields and corresponding text fields
+            results = self.search_client.search(
+                search_text=user_query,
+                vector_queries=vector_queries,
+                select=["id", "name", "architecture_url", "content"],
+                top=NUM_SEARCH_RESULTS
+            )
+            
+            search_results = []
+            for result in results:
+                # Combine all text content for the LLM with clear delineation
+                content_parts = []
+                
+                # Always include title at the top
+                if result.get("name"):
+                    content_parts.append(f"=== NAME ===\n{result['name']}\n=== END NAME ===")
+                
+                if result.get("architecture_url"):
+                    content_parts.append(f"=== URL ===\n{result['architecture_url']}\n=== END URL ===")
+
+                if result.get("content"):
+                    content_parts.append(f"=== CONTENT ===\n{result['content']}\n=== END CONTENT ===")
+                
+                combined_content = "\n\n".join(content_parts)
+                
+                search_result = {
+                    "id": result["id"],
+                    "name": combined_content,
+                    "architecture_url": result.get("architecture_url", ""),
+                    "content": result.get("content", ""),
+                    "score": result["@search.score"]
+                }
+                search_results.append(search_result)
+            
+            print(f"✅ Found {len(search_results)} search results")
+            return search_results
+            
+        except Exception as e:
+            print(f"❌ Error during search: {e}")
+            raise
     
     
