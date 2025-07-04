@@ -92,7 +92,7 @@ class BaseAgent(ABC):
             logger.info(f"Agent {self.get_agent_name()} requires function tools: {required_function_tools}")
             
             # Assign AI Search tool if required
-            if 'ai_search' in required_tools:
+            if required_tools and 'ai_search' in required_tools:
                 if self.factory.ai_search_tool:
                     self.ai_search_tool = self.factory.ai_search_tool
                     logger.info(f"Assigned AI Search tool to {self.get_agent_name()}")

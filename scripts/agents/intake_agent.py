@@ -125,17 +125,19 @@ if __name__ == "__main__":
             )
             factory.client.agents.enable_auto_function_calls({query})
             intake_agent = await factory.create_agent(IntakeAgent)
-            intake_agent.set_researcheragent(researcher_agent)
-          #  intake_agent.set_connected_agents(connected_agent)
+            #intake_agent.set_researcheragent(researcher_agent)
+            intake_agent.set_connected_agents(connected_agent)
             
 
-            final_answer= await researcher_agent.aisearch_query("Batch Message Ingestion (Using ADF Pipeline)")
-            print(json.dumps(final_answer, indent=2))
+            #final_answer= await researcher_agent.aisearch_query("Batch Message Ingestion (Using ADF Pipeline)")
+            #print(json.dumps(final_answer, indent=2))
+            
             # Example query
             #user_query = "Data from multiple sources, such as fare data and trip data, is ingested through Event Hubs. These streams are then processed in Azure Databricks,"
             #user_query = "I need data from multiple sources, such as fare data and trip data, is ingested through Event Hubs and stored in Azure storage blob. The data will be provided by external partners and will not need to be secured for now as this is a POC. The processing will be triggered only when the file is uploaded and it will go to an SFTP which will be created so we need detail on this as well. These streams are then processed in Azure Databricks where we can report on afterward. What is the recommendation?"
-            #logger.info("Sending query to intake agent...")
-            #result = await intake_agent.query(user_query)
+            user_query = "Do not ask for more detail. Only retrieve a software architecture for Batch Message Ingestion (Using ADF Pipeline)"
+            logger.info("Sending query to intake agent...")
+            result = await intake_agent.query(user_query)
             #thread = intake_agent.client.agents.threads.create()
             #researcher_response = await researcher_agent.query(user_query, thread_id=thread.id)
             #logger.info("Researcher Agent Response:")

@@ -1,0 +1,81 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "AI Search API",
+    "version": "1.0.0",
+    "description": "API for retrieving architecture documentation"
+  },
+  "servers": [
+    {
+      "url": "https://hh-cw-fn-aisearch.nicedune-62ca23ca.westus3.azurecontainerapps.io"
+    }
+  ],
+  "paths": {
+    "/api/http_trigger_aisearch": {
+      "post": {
+        "summary": "Get supporting documentation",
+        "description": "Retrieves supporting documents for a user query",
+        "operationId": "http_trigger_aisearch",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "user_query": {
+                    "type": "string",
+                    "description": "The user query to search for"
+                  }
+                },
+                "required": ["user_query"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "documents": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "architecture_url": {
+                            "type": "string"
+                          },
+                          "content": {
+                            "type": "string"
+                          },
+                          "score": {
+                            "type": "string"
+                          }
+                        },
+                        "required": ["id", "name", "architecture_url", "content", "score"]
+                      }
+                    }
+                  },
+                  "required": ["documents"]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          }
+        }
+      }
+    }
+  }
+}
