@@ -31,7 +31,7 @@ The configured agent will connect to an AI Search index which contains the inven
 
 Implemented via a python script in the /scripts folder. Indexes all the pdf files in the specified Blob Storage Account to an Azure AI Search index. These pdf files are Confluence pages containing architecture diagrams from previously implemented projects. 
 
-Deploy Azure Function App for AI Search
+## Deploy Azure Function App for building the RAG tool for Researcher Agent
 
 **Create Azure Container Registry and Build Function Image for use as an agent tool**
 
