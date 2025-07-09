@@ -1,0 +1,184 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "AI Search API with Durable Functions",
+    "version": "1.0.0",
+    "description": "Complete API for retrieving architecture documentation with durable function orchestration support"
+  },
+  "servers": [
+    {
+      "url": "https://hh-cw-fn-aisearch.nicedune-62ca23ca.westus3.azurecontainerapps.io"
+    }
+  ],
+  "paths": {
+    "/api/startOrchestrator": {
+      "post": {
+        "summary": "Retrieves supporting documents for a user query via an asynchronous azure durable function",
+        "description": "This returns an orchestration instance ID that can be used to track the status of the operation and to get the 'output' of the response via the status query endpoint 'statusQueryGetUri' returned in the response.",
+        "operationId": "start_orchestrator",
+        "tags": ["DurableFunctions"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "user_query": {
+                    "type": "string",
+                    "description": "The user query to search for"
+                  }
+                },
+                "required": ["user_query"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Orchestration started successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "description": "The orchestration instance ID"
+                    },
+                    "statusQueryGetUri": {
+                      "type": "string",
+                      "description": "URI to query the orchestration status"
+                    },
+                    "sendEventPostUri": {
+                      "type": "string",
+                      "description": "URI to send events to the orchestration"
+                    },
+                    "terminatePostUri": {
+                      "type": "string",
+                      "description": "URI to terminate the orchestration"
+                    },
+                    "rewindPostUri": {
+                      "type": "string",
+                      "description": "URI to rewind the orchestration"
+                    },
+                    "purgeHistoryDeleteUri": {
+                      "type": "string",
+                      "description": "URI to purge the orchestration history"
+                    },
+                    "restartPostUri": {
+                      "type": "string",
+                      "description": "URI to restart the orchestration"
+                    },
+                    "suspendPostUri": {
+                      "type": "string",
+                      "description": "URI to suspend the orchestration"
+                    },
+                    "resumePostUri": {
+                      "type": "string",
+                      "description": "URI to resume the orchestration"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "statusQueryGetUri",
+                    "sendEventPostUri",
+                    "terminatePostUri",
+                    "rewindPostUri",
+                    "purgeHistoryDeleteUri",
+                    "restartPostUri",
+                    "suspendPostUri",
+                    "resumePostUri"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        }
+      }
+    },
+    "/api/get_job_result": {
+      "post": {
+        "summary": "Retrieves the result of a long-running job",
+        "description": "Fetches the result of a job using the provided 'statusQueryGetUri'. Use this to get the final results from a durable function orchestration.",
+        "operationId": "get_job_result",
+        "tags": ["JobResults"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "statusQueryGetUri": {
+                    "type": "string",
+                    "description": "The status query URI returned from startOrchestrator"
+                  }
+                },
+                "required": ["statusQueryGetUri"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Job result retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "description": "The status of the job (Completed, Running, Failed, etc.)"
+                    },
+                    "results": {
+                      "type": "object",
+                      "description": "The results when status is Completed",
+                      "properties": {
+                        "documents": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "architecture_url": {
+                                "type": "string"
+                              },
+                              "content": {
+                                "type": "string"
+                              },
+                              "score": {
+                                "type": "number"
+                              }
+                            },
+                            "required": ["id", "name", "architecture_url", "content", "score"]
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "required": ["status"]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    }
+  }
+}
