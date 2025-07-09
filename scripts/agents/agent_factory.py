@@ -40,6 +40,7 @@ class BaseAgent(ABC):
 
         # Azure configuration from factory
         self.model_deployment_name = factory.model_deployment_name
+        print(f"Model deployment name: {self.model_deployment_name}")
         self.search_index_name = factory.search_index_name
         
         # Tools will be assigned based on requirements during initialization
@@ -91,7 +92,7 @@ class BaseAgent(ABC):
             logger.info(f"Agent {self.get_agent_name()} requires function tools: {required_function_tools}")
             
             # Assign AI Search tool if required
-            if 'ai_search' in required_tools:
+            if required_tools and 'ai_search' in required_tools:
                 if self.factory.ai_search_tool:
                     self.ai_search_tool = self.factory.ai_search_tool
                     logger.info(f"Assigned AI Search tool to {self.get_agent_name()}")
@@ -312,8 +313,8 @@ class AgentFactory:
         # Azure configuration from environment
         self.azure_openai_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
         self.project_connection_string = os.getenv("AZURE_AI_PROJECT_CONNECTION_STRING")
-        self.model_deployment_name = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4")
-        self.search_index_name = os.getenv("AZURE_AI_SEARCH_INDEX_NAME", "software-architecture-index")
+        self.model_deployment_name = "gpt-4.1-mini"
+        self.search_index_name = os.getenv("AZURE_AI_SEARCH_INDEX_NAME", "cw-architectures-index")
         
         if not self.project_connection_string:
             raise ValueError("AZURE_AI_PROJECT_CONNECTION_STRING is required in environment variables")
@@ -387,24 +388,6 @@ class AgentFactory:
         
         return agent
     
-    async def create_agent_with_connections(self, agent_class: type, connected_agent: type = None) -> BaseAgent:
-        """Create and initialize an agent, then set up connections to other agents."""
-        if not self._initialized:
-            raise RuntimeError("Factory not initialized. Call initialize() first.")
-
-        agent = agent_class(self).initialize().agents.create_agent(
-        model="gpt-4.1",
-        name=agent.get_agent_name(),
-        instructions="You are a helpful agent, and use the available tools to get stock prices.",
-        tools=connected_agent.definitions,
-        )
-
-        # Store reference
-        agent_name = agent.get_agent_name()
-       # self._agents[agent_name] = agent
-        
-        return agent
-
     async def create_all_agents(self, agent_classes: Dict[str, type], connected_agents: Optional[Dict[str, BaseAgent]] = None) -> Dict[str, BaseAgent]:
         """Create and initialize all specified agents."""
         if not self._initialized:
