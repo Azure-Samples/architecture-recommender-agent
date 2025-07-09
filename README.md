@@ -90,10 +90,13 @@ BOT_PASSWORD=your_microsoft_app_password_from_azure_bot_registration  # Same as 
 
 Azure AI Foundry Configuration:
 ```env
-Azure AI Foundry Agent Configuration (Required)
+# Azure AI Foundry Agent Configuration (Required)
 FOUNDRY_AGENT_ID=your_ai_foundry_agent_id
 FOUNDRY_PROJECT_ENDPOINT=https://your-project-name.cognitiveservices.azure.com/
 FOUNDRY_PROJECT_KEY=your_ai_foundry_project_api_key
+
+# Azure Function App Configuration (Required)
+AZURE_AISEARCH_FUNCTION_TOOL_URI=https://your-unique-function-app.azurewebsites.net
 ```
 **Teams Framework Configuration:**
 ```env
@@ -157,6 +160,7 @@ az webapp config appsettings set \
   FOUNDRY_AGENT_ID="your_foundry_agent_id" \
   FOUNDRY_PROJECT_ENDPOINT="your_foundry_endpoint" \
   FOUNDRY_PROJECT_KEY="your_foundry_key" \
+  AZURE_AISEARCH_FUNCTION_TOOL_URI="https://your-unique-function-app.azurewebsites.net" \
   TEAMSFX_NOTIFICATION_STORE_FILENAME="notification.db" \
   WEBSITES_PORT="8000"
 ```
@@ -179,11 +183,175 @@ az webapp deployment source config-zip \
   --src deployment.zip
 ```
 
-## Step 3: Connect Azure Bot Service to App Service
+## Step 3: Deploy Azure Function App for AI Search
 
-## Step 4: Upload Teams App Manifest
+**3.1 Create Azure Container Registry and Build Function Image**
 
-**4.1 Update Teams App Manifest for Production**
+```bash
+# Create Azure Container Registry
+az acr create \
+  --name your-unique-acr-name \
+  --resource-group rg-teams-ai-agent-prod \
+  --sku Basic \
+  --admin-enabled true
+
+# Login to ACR
+az acr login --name your-unique-acr-name
+
+# Build and push the function app image
+cd scripts/tools/az-func-open-api
+az acr build \
+  --registry your-unique-acr-name \
+  --image ai-search-function:latest \
+  --file Dockerfile .
+```
+
+**3.2 Deploy Function App with Container Support**
+
+```bash
+# Create storage account for function app
+az storage account create \
+  --name youruniquestorage \
+  --resource-group rg-teams-ai-agent-prod \
+  --location eastus \
+  --sku Standard_LRS
+
+# Get storage connection string
+STORAGE_CONNECTION=$(az storage account show-connection-string \
+  --name youruniquestorage \
+  --resource-group rg-teams-ai-agent-prod \
+  --query connectionString \
+  --output tsv)
+
+# Create Function App with container support
+az functionapp create \
+  --name your-unique-function-app \
+  --resource-group rg-teams-ai-agent-prod \
+  --plan asp-teams-ai-agent-prod \
+  --storage-account youruniquestorage \
+  --deployment-container-image-name your-unique-acr-name.azurecr.io/ai-search-function:latest \
+  --functions-version 4 \
+  --runtime python \
+  --runtime-version 3.12
+
+# Configure container registry credentials
+az functionapp config container set \
+  --name your-unique-function-app \
+  --resource-group rg-teams-ai-agent-prod \
+  --docker-custom-image-name your-unique-acr-name.azurecr.io/ai-search-function:latest \
+  --docker-registry-server-url https://your-unique-acr-name.azurecr.io \
+  --docker-registry-server-user your-unique-acr-name \
+  --docker-registry-server-password $(az acr credential show --name your-unique-acr-name --query passwords[0].value --output tsv)
+```
+
+**3.3 Configure Function App Environment Variables**
+
+```bash
+# Set required environment variables for the function app
+az functionapp config appsettings set \
+  --name your-unique-function-app \
+  --resource-group rg-teams-ai-agent-prod \
+  --settings \
+  AZURE_OPENAI_ENDPOINT="https://your-openai-resource.openai.azure.com/" \
+  AZURE_OPENAI_KEY="your_azure_openai_key" \
+  AZURE_OPENAI_EMBEDDINGS_MODEL_NAME="text-embedding-3-large" \
+  AZURE_AI_SEARCH_ENDPOINT="https://your-search-service.search.windows.net" \
+  AZURE_AI_SEARCH_KEY="your_search_admin_key" \
+  AZURE_AI_SEARCH_INDEX_NAME="cw-architectures-index" \
+  STORAGE_CONNECTION="$STORAGE_CONNECTION" \
+  AzureWebJobsStorage="$STORAGE_CONNECTION" \
+  FUNCTIONS_WORKER_RUNTIME="python" \
+  FUNCTIONS_EXTENSION_VERSION="~4" \
+  WEBSITE_HTTPLOGGING_RETENTION_DAYS="3"
+
+# Enable Application Insights (optional but recommended)
+az functionapp config appsettings set \
+  --name your-unique-function-app \
+  --resource-group rg-teams-ai-agent-prod \
+  --settings \
+  APPINSIGHTS_INSTRUMENTATIONKEY="your_app_insights_key"
+```
+
+**3.4 Alternative: Deploy to Azure Container Apps (Recommended for scalability)**
+
+```bash
+# Create Container Apps environment
+az containerapp env create \
+  --name capp-env-teams-ai-agent \
+  --resource-group rg-teams-ai-agent-prod \
+  --location eastus
+
+# Deploy the function as a container app
+az containerapp create \
+  --name ai-search-function-app \
+  --resource-group rg-teams-ai-agent-prod \
+  --environment capp-env-teams-ai-agent \
+  --image your-unique-acr-name.azurecr.io/ai-search-function:latest \
+  --registry-server your-unique-acr-name.azurecr.io \
+  --registry-username your-unique-acr-name \
+  --registry-password $(az acr credential show --name your-unique-acr-name --query passwords[0].value --output tsv) \
+  --target-port 80 \
+  --ingress external \
+  --min-replicas 1 \
+  --max-replicas 10 \
+  --cpu 0.5 \
+  --memory 1Gi \
+  --env-vars \
+  AZURE_OPENAI_ENDPOINT="https://your-openai-resource.openai.azure.com/" \
+  AZURE_OPENAI_KEY="your_azure_openai_key" \
+  AZURE_OPENAI_EMBEDDINGS_MODEL_NAME="text-embedding-3-large" \
+  AZURE_AI_SEARCH_ENDPOINT="https://your-search-service.search.windows.net" \
+  AZURE_AI_SEARCH_KEY="your_search_admin_key" \
+  AZURE_AI_SEARCH_INDEX_NAME="cw-architectures-index" \
+  STORAGE_CONNECTION="$STORAGE_CONNECTION" \
+  AzureWebJobsStorage="$STORAGE_CONNECTION" \
+  FUNCTIONS_WORKER_RUNTIME="python" \
+  FUNCTIONS_EXTENSION_VERSION="~4"
+
+# Get the function app URL
+FUNCTION_APP_URL=$(az containerapp show \
+  --name ai-search-function-app \
+  --resource-group rg-teams-ai-agent-prod \
+  --query properties.configuration.ingress.fqdn \
+  --output tsv)
+
+echo "Function App URL: https://$FUNCTION_APP_URL"
+```
+
+**3.5 Update Agent Configuration**
+
+After deploying the function app, update your agent configuration to use the new endpoint:
+
+```bash
+# Update the environment variable in your main application
+az webapp config appsettings set \
+  --name your-unique-app-name \
+  --resource-group rg-teams-ai-agent-prod \
+  --settings \
+  AZURE_AISEARCH_FUNCTION_TOOL_URI="https://your-unique-function-app.azurewebsites.net" \
+  # OR for Container Apps:
+  # AZURE_AISEARCH_FUNCTION_TOOL_URI="https://$FUNCTION_APP_URL"
+```
+
+**3.6 Test the Function Deployment**
+
+```bash
+# Test the function endpoint
+curl -X POST "https://your-unique-function-app.azurewebsites.net/api/startOrchestrator" \
+  -H "Content-Type: application/json" \
+  -d '{"user_query": "Test search query"}'
+
+# Check function logs
+az functionapp log tail \
+  --name your-unique-function-app \
+  --resource-group rg-teams-ai-agent-prod
+```
+
+## Step 4: Connect Azure Bot Service to App Service
+
+## Step 5: Upload Teams App Manifest
+
+**5.1 Update Teams App Manifest for Production**
 
 Update `appPackage/manifest.json` with production values:
 
@@ -250,7 +418,7 @@ Update `appPackage/manifest.json` with production values:
 }
 ```
 
-**4.2 Create Teams App Package**
+**5.2 Create Teams App Package**
 
 ```bash
 # Navigate to appPackage directory
@@ -263,7 +431,7 @@ zip -r ../teams-app-prod.zip manifest.json color.png outline.png
 unzip -l ../teams-app-prod.zip
 ```
 
-**4.3 Upload to Teams Admin Center (Organization-wide)**
+**5.3 Upload to Teams Admin Center (Organization-wide)**
 
 1. **Access Teams Admin Center**:
    - Navigate to [Microsoft Teams Admin Center](https://admin.teams.microsoft.com)
