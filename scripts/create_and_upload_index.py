@@ -1,21 +1,19 @@
 import os
 import io
-from datetime import datetime, timedelta
-from pathlib import Path
-from dotenv import load_dotenv
-from pdf2image import convert_from_path
+import uuid
 import fitz
-from azure.core.credentials import AzureKeyCredential
-from azure.ai.documentintelligence import DocumentIntelligenceClient
-from azure.ai.documentintelligence.models import AnalyzeResult
-from pydantic import BaseModel
-from typing import List, Dict, Any
-from openai import AzureOpenAI
 import json
 import base64
-import fitz  # PyMuPDF
+import gc
+from pydantic import BaseModel
+from typing import List, Dict, Any, Tuple
+from dotenv import load_dotenv
+from pdf2image import convert_from_path
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Tuple
+from azure.ai.documentintelligence import DocumentIntelligenceClient
+from azure.ai.documentintelligence.models import AnalyzeResult
+from openai import AzureOpenAI
 from azure.search.documents import SearchClient
 from azure.search.documents.indexes import SearchIndexClient
 from azure.search.documents.indexes.models import (
@@ -33,24 +31,14 @@ from azure.search.documents.indexes.models import (
     SearchIndex
 )
 from azure.core.credentials import AzureKeyCredential, AccessToken
-import uuid
 from azure.identity import ClientSecretCredential
 from azure.identity import DefaultAzureCredential
 from azure.storage.blob import BlobServiceClient
-from msal import ConfidentialClientApplication
-#import logging
-#logging.basicConfig(level=logging.DEBUG)
 
 # Set up paths
 script_dir = Path.cwd()
-data_dir = script_dir / "data"          # …/data
-out_page_dir  = data_dir / "split_pages"      # …/data/split_pages
-out_page_dir.mkdir(parents=True, exist_ok=True)
-out_fig_dir = data_dir / "figures"
-out_fig_dir.mkdir(parents=True, exist_ok=True)
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
-
 #configure service connections
 endpoint = os.environ["Azure_Document_Intelligence_Endpoint"]#
 key       = os.environ["Azure_Document_Intelligence_Key"]#
@@ -77,14 +65,14 @@ azure_openai_embedding_dimensions = 3072
 cred          = AzureKeyCredential(search_admin_key)
 index_client  = SearchIndexClient(search_endpoint, cred)
 
-
-
 # Azure Storage account details
 storage_account_name = os.environ["Azure_Blob_Storage_Account_Name"]
 output_container_name = os.environ["Azure_Blob_output_container_name"]
 input_container_name = os.environ["Azure_Blob_input_container_name"]
 
-blob_service_client = os.environ.get("Azure_blob_connection_string")
+blob_connection_string = os.environ["Azure_blob_connection"]
+
+blob_service_client = BlobServiceClient.from_connection_string(os.environ["Azure_blob_connection"])
 
 architecture_extraction_system_prompt = """
 You are provided with the OCR content and Section Headings of a PDF containing software architecture diagrams. Your job is to use the Sections Headings of the PDF to identify 
@@ -198,8 +186,7 @@ def get_recent_pdfs_from_blob(container_client, hours=24):
         
         for blob in blobs:
             # Check if it's a PDF file and was modified recently
-            if (blob.name.lower().endswith('.pdf') and 
-                blob.last_modified.replace(tzinfo=None) > cutoff_time):
+            if (blob.name.lower().endswith('.pdf') and blob.last_modified.replace(tzinfo=None) > cutoff_time):
                 
                 print(f"Found recent PDF: {blob.name} (modified: {blob.last_modified})")
                 
@@ -214,28 +201,11 @@ def get_recent_pdfs_from_blob(container_client, hours=24):
         
     return recent_pdfs
 
-def save_blob_pdfs_locally(recent_pdfs, local_data_dir):
-    """
-    Save downloaded PDF blobs to local directory.
+def get_ocr_from_adi_bytes(pdf_bytes: bytes):
     
-    Args:
-        recent_pdfs: List of tuples containing (blob_name, blob_data)
-        local_data_dir: Local directory to save PDFs
-    """
-    for blob_name, blob_data in recent_pdfs:
-        local_file_path = local_data_dir / blob_name
-        
-        with open(local_file_path, 'wb') as f:
-            f.write(blob_data)
-        
-        print(f"Saved {blob_name} to {local_file_path}")
-
-def get_ocr_from_adi(file_path: str):
-    
-    with open(file_path, "rb") as f:
-        poller = adi_client.begin_analyze_document(
+    poller = adi_client.begin_analyze_document(
        "prebuilt-layout",
-        body=f)
+        body=pdf_bytes)
 
     result = poller.result()
 
@@ -267,15 +237,19 @@ def _to_points(poly) -> list[fitz.Point]:
         poly = list(zip(poly[0::2], poly[1::2]))
     if len(poly) != 4:
         raise ValueError("polygon must contain four points")
+    
     return [fitz.Point(x * 72, y * 72) for x, y in poly]
 
-def pdf_to_figures(pdf_path: Path, out_fig_dir: Path, dpi: int = 300) -> None:
+
+def pdf_to_figures(pdf_bytes: bytes, file_name: Path, fig_bounding_boxes: List, dpi: int = 300) -> None:
     """
     Extract figures from each page of the pdf and save them in the specified directory.
     """
-    doc  = fitz.open(pdf_path)
+    doc  = fitz.open(stream=pdf_bytes, filetype="pdf")
     zoom = dpi / 72.0                       
     mat  = fitz.Matrix(zoom, zoom)
+
+    figure_images = []
 
     for fig_idx,fig_bounding_box in enumerate(fig_bounding_boxes):
         quad = _to_points(fig_bounding_box["polygon"])
@@ -285,25 +259,32 @@ def pdf_to_figures(pdf_path: Path, out_fig_dir: Path, dpi: int = 300) -> None:
         zoom = dpi / 72.0
         mat  = fitz.Matrix(zoom, zoom)
         pix  = page.get_pixmap(matrix=mat, clip=bbox, alpha=False)
-        out_fig_path = out_fig_dir / f"{pdf_path.stem}_{fig_idx:03}.png"
-        pix.save(out_fig_path)
+        out_fig_name = f"{file_name.stem}_{fig_idx:03}.png"
+        figure_images.append((out_fig_name, pix.tobytes("png")))
+    doc.close()
+
+    return figure_images
 
 
-def pdf_to_pngs(pdf_path: Path, out_fig_dir: Path, out_page_dir: Path, dpi: int = 300) -> None:
+def pdf_to_pngs_from_bytes(pdf_bytes: bytes, file_name: Path, fig_bounding_boxes: List, dpi: int = 300) -> None:
 
-    doc  = fitz.open(pdf_path)
+    doc  = fitz.open(stream=pdf_bytes, filetype="pdf")
     zoom = dpi / 72.0                       
     mat  = fitz.Matrix(zoom, zoom)
+    
+    page_images = []
 
     for page_idx in range(len(doc)):
         page = doc[page_idx]
-        w, h = page.rect.width, page.rect.height
         pix = doc.load_page(page_idx).get_pixmap(matrix=mat, alpha=False)
-        out_page_path = out_page_dir / f"{pdf_path.stem}_{page_idx:03}.png"
-        pix.save(out_page_path)
-        
+        png_bytes = pix.tobytes("png")
+        output_page_name = f"{file_name.stem}_{page_idx:03}.png"
+        page_images.append((output_page_name, png_bytes))
     
-    pdf_to_figures(pdf_path, out_fig_dir, dpi=dpi)
+    figure_images = pdf_to_figures(pdf_bytes, file_name, fig_bounding_boxes, dpi=dpi)
+    doc.close()
+
+    return page_images, figure_images
 
 
 def architecture_extraction_with_ocr(ocr_content: str, section_headings: str, architecture_extraction_system_prompt: str):
@@ -335,22 +316,13 @@ def architecture_extraction_with_ocr(ocr_content: str, section_headings: str, ar
     return extracted_architectures
 
 
-def architecture_ai_summaries_with_images(pdf_path: Path, file_name: str, system_prompt_arch_summary: str):
-
-    doc  = fitz.open(pdf_path)
+def architecture_ai_summaries_with_images(page_images: List[Tuple[str, bytes]], system_prompt_arch_summary: str):
 
     architecture_ai_summaries = []                                              
 
-    for page_idx in range(len(doc)):                        
-        image_path = out_page_dir / f"{Path(file_name).stem}_{page_idx:03}.png"
-        print("Image Path:", image_path)
-        if not image_path.exists():
-            print(f"File missing: {image_path}")
-            continue
-        
-        with open(image_path, "rb") as img_f:
-            #blob_client.upload_blob(img_f, overwrite=True)
-            image_base64 = base64.b64encode(img_f.read()).decode("utf-8")
+    for (image_name, png_bytes) in page_images:                        
+    
+        image_base64 = base64.b64encode(png_bytes).decode("utf-8")
 
         messages = [
             {"role": "system", "content": system_prompt_arch_summary},
@@ -379,24 +351,20 @@ def architecture_ai_summaries_with_images(pdf_path: Path, file_name: str, system
     return architecture_ai_summaries
 
 
-def build_and_push_docs(arch_items: List[dict], summaries: List[dict], file_name: str) -> None:
-    summary_map = {s["name"]: s["summary"] for s in summaries}
+def build_and_push_docs(extracted_architectures: List[dict], architecture_ai_summaries: List[dict], figure_images: List[Tuple[str, bytes]], file_name: Path) -> None:
+    summary_map = {s["name"]: s["summary"] for s in architecture_ai_summaries}
     docs = []
 
-    for index, arch in enumerate(arch_items):
+    for index, arch in enumerate(extracted_architectures):
         # Get a BlobClient
-        blob_name = f"{Path(file_name).stem}_{index:03}.png"
-        blob_path = str(out_fig_dir / blob_name)
-        #blob_client = blob_service_client.get_blob_client(container=output_container_name, blob=f"{blob_path}_{index:03}.png")
+
+        figure_filename, png_bytes = figure_images[index]
         
         container_client = blob_service_client.get_container_client(container=output_container_name)
 
-        with open(blob_path, "rb") as data:
-            container_client.upload_blob(name=blob_name, data=data, overwrite=True)
-            #blob_client.upload_blob(data, overwrite=True)
+        container_client.upload_blob(name=figure_filename, data=png_bytes, overwrite=True)
 
-        blob_url = f"https://{storage_account_name}.blob.core.windows.net/{output_container_name}/{blob_name}"
-        #blob_url = "https://example.blob.core.windows.net/container/"  # Replace with actual blob URL
+        blob_url = f"https://{storage_account_name}.blob.core.windows.net/{output_container_name}/{figure_filename}"
         print(f"Blob uploaded successfully. URL: {blob_url}")
 
         text = (
@@ -423,7 +391,7 @@ def build_and_push_docs(arch_items: List[dict], summaries: List[dict], file_name
     
     search_client = SearchClient(search_endpoint, index_name, cred)
     upload_result = search_client.upload_documents(docs)
-    print("Upload succeeded:", all(r.succeeded for r in upload_result))
+    print("Upload to AI Search succeeded:", all(r.succeeded for r in upload_result))
 
 if __name__ == "__main__":
     print("Creating or updating search index...")
@@ -434,33 +402,43 @@ if __name__ == "__main__":
     
     if recent_pdfs:
         print(f"Found {len(recent_pdfs)} recent PDF(s)")
-        # Save to local directory for processing
-        save_blob_pdfs_locally(recent_pdfs, data_dir)
 
     else:
         print("No recent PDFs found in blob storage")
 
     print("Beginning data pipeline...")
-    print(f"Data directory: {data_dir}")
     
-    for file_name in os.listdir(data_dir):
+    for pdf_file in recent_pdfs:
+        file_name, pdf_bytes = pdf_file
         if file_name.endswith(".pdf"):
-            print(f"Processing file: {file_name}")
-            file_path = data_dir / file_name
-            section_headings, fig_bounding_boxes, result = get_ocr_from_adi(str(file_path))
-            pdf_to_pngs(file_path, out_fig_dir, out_page_dir, dpi=300)
-            extracted_architectures = architecture_extraction_with_ocr(
-            ocr_content=result.content,
-            section_headings=section_headings,
-            architecture_extraction_system_prompt=architecture_extraction_system_prompt
-            )
-            architecture_ai_summaries = architecture_ai_summaries_with_images(
-            pdf_path=file_path,
-            file_name=file_name,
-            system_prompt_arch_summary=system_prompt_arch_summary
-            )
-            build_and_push_docs(
-            arch_items=extracted_architectures,
-            summaries=architecture_ai_summaries, 
-            file_name=file_name
-            )
+            file_name = Path(file_name)
+            print(f"Processing PDF : {str(file_name)}")
+
+            try:
+                section_headings, fig_bounding_boxes, result = get_ocr_from_adi_bytes(pdf_bytes)
+                page_images, figure_images = pdf_to_pngs_from_bytes(pdf_bytes, file_name, fig_bounding_boxes, dpi=300)
+
+                extracted_architectures = architecture_extraction_with_ocr(
+                ocr_content=result.content,
+                section_headings=section_headings,
+                architecture_extraction_system_prompt=architecture_extraction_system_prompt
+                )
+
+                architecture_ai_summaries = architecture_ai_summaries_with_images(
+                page_images=page_images,
+                system_prompt_arch_summary=system_prompt_arch_summary
+                )
+
+                build_and_push_docs(
+                extracted_architectures=extracted_architectures,
+                architecture_ai_summaries=architecture_ai_summaries,
+                figure_images=figure_images,
+                file_name=file_name
+                )
+
+            finally:
+                print(f"Finished processing PDF: {str(file_name)}")
+                del result, pdf_bytes, section_headings, fig_bounding_boxes, page_images, figure_images, extracted_architectures, architecture_ai_summaries
+                gc.collect()
+
+        
